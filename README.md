@@ -139,3 +139,10 @@ inline heading markup, skipped heading levels, lists/tables/code/images/math,
 long inputs, permanent IDs, shortened content, restored sections, and failed-build
 publication. The integration test skips if Hugo is unavailable. Model tests can
 need a model download on an uncached machine.
+
+## Editor setup
+
+`pyrightconfig.json` selects this project's `.venv` and Python 3.13. `uv sync
+--locked` also installs the development type stubs for lxml. Open this directory as
+the editor project root and restart the Python language server after environment
+changes. Run `pyright` from the project root to check the code.

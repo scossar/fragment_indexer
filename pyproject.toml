@@ -14,3 +14,6 @@ fragment-indexer = "fragment_indexer.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["fragment_indexer"]
+
+[dependency-groups]
+dev = ["lxml-stubs>=0.5.1,<1"]

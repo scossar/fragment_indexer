@@ -103,9 +103,12 @@ def query(args):
         print("[]")
         return
     result = collection.query(query_texts=[args.text], n_results=min(args.limit, collection.count()))
+    metadata_groups, distance_groups = result["metadatas"], result["distances"]
+    if not metadata_groups or not distance_groups:
+        raise ValueError("Chroma did not return the requested metadata and distances")
     seen, rows = set(), []
     with closing(sqlite3.connect(release / "sqlite/sections.db")) as db:
-        for metadata, distance in zip(result["metadatas"][0], result["distances"][0]):
+        for metadata, distance in zip(metadata_groups[0], distance_groups[0], strict=True):
             db_id = metadata["db_id"]
             if db_id in seen:
                 continue

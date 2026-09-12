@@ -1,6 +1,9 @@
 """Explicit encoder and token-budgeted text chunks; HTML spans remain unchanged."""
 from dataclasses import dataclass
 import hashlib
+from typing import Any
+
+from chromadb.api.types import EmbeddingFunction
 
 from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
 from tokenizers import Tokenizer
@@ -20,10 +23,13 @@ class MiniLM:
     max_tokens = 256
 
     def __init__(self):
-        self.function = ONNXMiniLM_L6_V2(preferred_providers=["CPUExecutionProvider"])
+        function = ONNXMiniLM_L6_V2(preferred_providers=["CPUExecutionProvider"])
+        # Chroma's collection methods use a multimodal generic; this project sends
+        # only text. Keep the concrete encoder locally for its tokenizer property.
+        self.function: EmbeddingFunction[Any] = function
         # Public encoder call ensures cached files exist before loading the tokenizer.
         self.function(["Initialize the embedding model."])
-        self.tokenizer = Tokenizer.from_str(self.function.tokenizer.to_str())
+        self.tokenizer = Tokenizer.from_str(function.tokenizer.to_str())
         self.tokenizer.no_truncation()
         self.tokenizer.no_padding()
         self.tokenizer_sha256 = hashlib.sha256(self.tokenizer.to_str().encode()).hexdigest()

@@ -65,7 +65,10 @@ def index_html(html_dir: Path, release: Path, registry: Path, max_tokens: int, c
     expected = {r[0]: r for r in records}
     if set(stored["ids"]) != set(expected):
         raise ValueError("Stored Chroma IDs do not match generated chunks")
-    for key, metadata, document in zip(stored["ids"], stored["metadatas"], stored["documents"]):
+    stored_metadata, stored_documents = stored["metadatas"], stored["documents"]
+    if stored_metadata is None or stored_documents is None:
+        raise ValueError("Chroma did not return the requested metadata and documents")
+    for key, metadata, document in zip(stored["ids"], stored_metadata, stored_documents, strict=True):
         if metadata != expected[key][2] or document != expected[key][1]:
             raise ValueError(f"Stored Chroma record differs: {key}")
         if encoder.count(document) > max_tokens:
@@ -82,7 +85,8 @@ def index_html(html_dir: Path, release: Path, registry: Path, max_tokens: int, c
         raise ValueError("A fragment has no Hugo URL mapping")
     if records:
         query = collection.query(query_texts=[records[0][1]], n_results=min(3, len(records)))
-        if not query["ids"][0] or not all(m["db_id"] in sql_ids for m in query["metadatas"][0]):
+        query_metadata = query["metadatas"]
+        if not query["ids"][0] or not query_metadata or not all(m["db_id"] in sql_ids for m in query_metadata[0]):
             raise ValueError("Real Chroma query failed to resolve fragments")
     summary = {
         "schema_version": 1, "boundary_policy": policy.name, "chunker_version": 1,
