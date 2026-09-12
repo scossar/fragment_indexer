@@ -1,6 +1,7 @@
 """Permanent allocation history lives outside replaceable build snapshots."""
-from contextlib import closing
+
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from .extraction import Fragment
@@ -17,8 +18,10 @@ def allocate(path: Path, fragments: list[Fragment]) -> dict[str, int]:
             section_id TEXT NOT NULL UNIQUE
         )""")
         # Never delete rows, including identities absent from this build.
-        db.executemany("INSERT OR IGNORE INTO identities(section_id) VALUES (?)",
-                       [(key,) for key in sorted(keys)])
+        db.executemany(
+            "INSERT OR IGNORE INTO identities(section_id) VALUES (?)",
+            [(key,) for key in sorted(keys)],
+        )
         all_ids = dict(db.execute("SELECT section_id, id FROM identities"))
         return {key: all_ids[key] for key in keys}
 
@@ -37,15 +40,29 @@ def write_sections(path: Path, fragments: list[Fragment], ids: dict[str, int]) -
             page_url TEXT NOT NULL,
             source TEXT NOT NULL
         )""")
-        db.executemany("INSERT INTO sections VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [
-            (ids[f.identity], f.identity, f.page.post_id, f.anchor or "", f.html_heading,
-             f.html_fragment, f.page.updated_at, f.page.url, f.page.source)
-            for f in fragments
-        ])
+        db.executemany(
+            "INSERT INTO sections VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    ids[f.identity],
+                    f.identity,
+                    f.page.post_id,
+                    f.anchor or "",
+                    f.html_heading,
+                    f.html_fragment,
+                    f.page.updated_at,
+                    f.page.url,
+                    f.page.source,
+                )
+                for f in fragments
+            ],
+        )
         db.execute("CREATE INDEX sections_post_id ON sections(post_id)")
 
 
-def make_map(fragments: list[Fragment], ids: dict[str, int]) -> dict[str, dict[str, int]]:
+def make_map(
+    fragments: list[Fragment], ids: dict[str, int]
+) -> dict[str, dict[str, int]]:
     mapping = {}
     for fragment in fragments:
         value = {"db_id": ids[fragment.identity]}

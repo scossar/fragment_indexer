@@ -1,10 +1,10 @@
 """Explicit encoder and token-budgeted text chunks; HTML spans remain unchanged."""
-from dataclasses import dataclass
+
 import hashlib
+from dataclasses import dataclass
 from typing import Any
 
 from chromadb.api.types import EmbeddingFunction
-
 from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
 from tokenizers import Tokenizer
 
@@ -32,7 +32,9 @@ class MiniLM:
         self.tokenizer = Tokenizer.from_str(function.tokenizer.to_str())
         self.tokenizer.no_truncation()
         self.tokenizer.no_padding()
-        self.tokenizer_sha256 = hashlib.sha256(self.tokenizer.to_str().encode()).hexdigest()
+        self.tokenizer_sha256 = hashlib.sha256(
+            self.tokenizer.to_str().encode()
+        ).hexdigest()
 
     def count(self, text: str) -> int:
         return len(self.tokenizer.encode(text).ids)  # includes special tokens
@@ -52,14 +54,16 @@ def fit_prefix(text: str, count, budget: int) -> int:
     return low
 
 
-def chunk_fragment(fragment: Fragment, encoder: MiniLM, max_tokens: int = 256) -> list[Chunk]:
+def chunk_fragment(
+    fragment: Fragment, encoder: MiniLM, max_tokens: int = 256
+) -> list[Chunk]:
     if not 16 <= max_tokens <= encoder.max_tokens:
         raise ValueError(f"max_tokens must be between 16 and {encoder.max_tokens}")
     context = " > ".join((fragment.page.title,) + fragment.headings)
     # Bound context so even very long titles leave space for content.
     context_budget = min(64, max_tokens // 3)
     if encoder.count(context) > context_budget:
-        context = context[:fit_prefix(context, encoder.count, context_budget)]
+        context = context[: fit_prefix(context, encoder.count, context_budget)]
     prefix = context + "\n\n"
     blocks = list(fragment.text_blocks)
     if not blocks:

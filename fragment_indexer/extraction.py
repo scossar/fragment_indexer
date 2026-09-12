@@ -1,16 +1,37 @@
 """Extract fragments independently of database allocation and embedding budgets."""
+
+import json
 from copy import deepcopy
 from dataclasses import dataclass
-import json
 from pathlib import Path
 from typing import Protocol
 from urllib.parse import urljoin, urlsplit
 
-from lxml import html, etree
+from lxml import etree, html
 
 HEADINGS = {f"h{n}" for n in range(1, 7)}
-BLOCKS = {"p", "div", "section", "article", "blockquote", "ul", "ol", "li", "dl",
-          "dt", "dd", "table", "tr", "td", "th", "pre", "figure", "figcaption", "br", "hr"} | HEADINGS
+BLOCKS = {
+    "p",
+    "div",
+    "section",
+    "article",
+    "blockquote",
+    "ul",
+    "ol",
+    "li",
+    "dl",
+    "dt",
+    "dd",
+    "table",
+    "tr",
+    "td",
+    "th",
+    "pre",
+    "figure",
+    "figcaption",
+    "br",
+    "hr",
+} | HEADINGS
 
 
 @dataclass(frozen=True)
@@ -42,8 +63,15 @@ class Fragment:
     @property
     def identity(self) -> str:
         # Structured serialization avoids delimiter collisions and reserves intro identity.
-        return json.dumps([self.page.post_id, "intro" if self.anchor is None else "heading", self.anchor],
-                          ensure_ascii=False, separators=(",", ":"))
+        return json.dumps(
+            [
+                self.page.post_id,
+                "intro" if self.anchor is None else "heading",
+                self.anchor,
+            ],
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
 
     @property
     def url(self) -> str:
@@ -58,7 +86,9 @@ class BoundaryPolicy(Protocol):
 
 def heading_text(element: html.HtmlElement) -> str:
     element = deepcopy(element)
-    for link in element.xpath('.//a[contains(concat(" ", normalize-space(@class), " "), " anchor ")]'):
+    for link in element.xpath(
+        './/a[contains(concat(" ", normalize-space(@class), " "), " anchor ")]'
+    ):
         link.drop_tree()
     return " ".join(element.text_content().split())
 
@@ -69,6 +99,7 @@ class NextHeadingPolicy:
     A different policy may inspect the entire Page (including its DOM and source
     metadata). Chunking, identities, and storage need not know how spans are chosen.
     """
+
     name = "next-heading-v1"
 
     def sections(self, page: Page) -> list[Section]:
@@ -92,10 +123,14 @@ class NextHeadingPolicy:
                 continue
             if element.tag in HEADINGS:
                 if anchor is not None or elements:
-                    result.append(Section(anchor, tuple(t for _, t in stack), tuple(elements)))
+                    result.append(
+                        Section(anchor, tuple(t for _, t in stack), tuple(elements))
+                    )
                 anchor = element.get("id")
                 if not anchor or anchor in seen:
-                    raise ValueError(f"{page.source}: missing or duplicate heading ID {anchor!r}")
+                    raise ValueError(
+                        f"{page.source}: missing or duplicate heading ID {anchor!r}"
+                    )
                 seen.add(anchor)
                 level = int(element.tag[1])
                 while stack and stack[-1][0] >= level:
@@ -108,7 +143,9 @@ class NextHeadingPolicy:
                     elements.append(paragraph)
             else:
                 if any(e.tag in HEADINGS for e in element.iterdescendants()):
-                    raise ValueError(f"{page.source}: nested headings require a different boundary policy")
+                    raise ValueError(
+                        f"{page.source}: nested headings require a different boundary policy"
+                    )
                 elements.append(element)
         if anchor is not None or elements:
             result.append(Section(anchor, tuple(t for _, t in stack), tuple(elements)))
@@ -130,7 +167,13 @@ def discover_pages(directory: Path) -> list[Page]:
         post_id = attrs.get("data-post-id", "").strip()
         url = attrs.get("data-page-url", "")
         parsed = urlsplit(url)
-        if not post_id or not url.startswith("/") or parsed.netloc or parsed.query or parsed.fragment:
+        if (
+            not post_id
+            or not url.startswith("/")
+            or parsed.netloc
+            or parsed.query
+            or parsed.fragment
+        ):
             raise ValueError(f"{path}: invalid post ID or canonical page URL")
         if post_id in seen_ids or url in seen_urls:
             raise ValueError(f"{path}: duplicate post ID or canonical URL")
@@ -141,10 +184,20 @@ def discover_pages(directory: Path) -> list[Page]:
         for element in root.iter():
             if any(k.startswith(("hx-", "data-hx-")) for k in element.attrib):
                 raise ValueError(f"{path}: HTMX attributes found in extraction HTML")
-        pages.append(Page(post_id, url, attrs["data-page-title"], attrs["data-source"],
-                          float(attrs["data-updated-at"]), root))
+        pages.append(
+            Page(
+                post_id,
+                url,
+                attrs["data-page-title"],
+                attrs["data-source"],
+                float(attrs["data-updated-at"]),
+                root,
+            )
+        )
     if not pages:
-        raise ValueError("No marked published posts found; refusing to build an empty index")
+        raise ValueError(
+            "No marked published posts found; refusing to build an empty index"
+        )
     return sorted(pages, key=lambda p: p.post_id)
 
 
@@ -158,7 +211,9 @@ def text_blocks(root: html.HtmlElement) -> tuple[str, ...]:
         if "katex" in node.get("class", "").split():
             # Hugo emits both accessible MathML and visual spans. Use the original
             # equation once for embeddings, while retaining all rendered HTML.
-            annotations = node.xpath('.//*[local-name()="annotation" and @encoding="application/x-tex"]')
+            annotations = node.xpath(
+                './/*[local-name()="annotation" and @encoding="application/x-tex"]'
+            )
             if annotations:
                 parts.append(" " + "".join(annotations[0].itertext()) + " ")
                 return
@@ -176,7 +231,11 @@ def text_blocks(root: html.HtmlElement) -> tuple[str, ...]:
             parts.append("\n")
 
     walk(root)
-    return tuple(line for line in (" ".join(s.split()) for s in "".join(parts).splitlines()) if line)
+    return tuple(
+        line
+        for line in (" ".join(s.split()) for s in "".join(parts).splitlines())
+        if line
+    )
 
 
 def extract(page: Page, policy: BoundaryPolicy) -> list[Fragment]:
@@ -195,7 +254,14 @@ def extract(page: Page, policy: BoundaryPolicy) -> list[Fragment]:
         url = page.url + ("#" + section.anchor if section.anchor is not None else "")
         link = etree.SubElement(heading, "a", href=url)
         link.text = title
-        fragments.append(Fragment(page, section.anchor, section.headings,
-                                  html.tostring(heading, encoding="unicode"),
-                                  html.tostring(wrapper, encoding="unicode"), text_blocks(wrapper)))
+        fragments.append(
+            Fragment(
+                page,
+                section.anchor,
+                section.headings,
+                html.tostring(heading, encoding="unicode"),
+                html.tostring(wrapper, encoding="unicode"),
+                text_blocks(wrapper),
+            )
+        )
     return fragments
