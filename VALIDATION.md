@@ -1,3 +1,20 @@
+# Validation — 2026-09-12
+
+- All 28 indexer tests passed, including real Hugo/Chroma builds and repeated
+  publication, deletion, restoration, and failed-build preservation.
+- Pyright passed with zero errors or warnings using the indexer's environment.
+- A full isolated build of the Zalgorithm site produced 20 pages, 70 fragments,
+  70 FTS rows, 70 embedding chunks, and 80 URL mappings. All 20 generated HTMX
+  links were verified.
+- FTS tests verify the final text of long fragments is searchable, empty heading
+  fragments retain searchable context, canonical page URLs remain retrievable,
+  row IDs equal HTML fragment IDs, deleted words/rows disappear on rebuild, and
+  read-only queries leave the database unchanged.
+- The API integration suite passed all 45 tests against the new snapshot in both
+  local and HTTP Chroma modes, including keyword, inclusion/exclusion, and hybrid
+  queries with the real MiniLM encoder.
+- No source-site templates, content, or deployment scripts were changed.
+
 # Validation — 2026-09-11
 
 Verified locally with Python 3.13, Hugo 0.165.0, Chroma 1.5.9, and the actual

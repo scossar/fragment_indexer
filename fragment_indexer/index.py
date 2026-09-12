@@ -12,6 +12,7 @@ from chromadb.config import Settings
 from .embedding import MiniLM, chunk_fragment
 from .extraction import NextHeadingPolicy, discover_pages, extract
 from .storage import allocate, make_map, write_sections
+from .keyword import verify_keyword_index
 
 
 def write_json(path: Path, value):
@@ -73,8 +74,9 @@ def index_html(html_dir: Path, release: Path, registry: Path, max_tokens: int, c
             raise ValueError(f"Stored Chroma record differs: {key}")
         if encoder.count(document) > max_tokens:
             raise ValueError(f"Stored chunk exceeds token budget: {key}")
-    with closing(sqlite3.connect(release / "sqlite/sections.db")) as db:
+    with closing(sqlite3.connect(release / "sqlite/sections.db")) as db, db:
         sql_ids = {row[0] for row in db.execute("SELECT id FROM sections")}
+        keyword_count = verify_keyword_index(db)
         if db.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
             raise ValueError("SQLite integrity check failed")
     if sql_ids != set(ids.values()) or not all(v["db_id"] in sql_ids for v in mapping.values()):
@@ -90,6 +92,7 @@ def index_html(html_dir: Path, release: Path, registry: Path, max_tokens: int, c
             raise ValueError("Real Chroma query failed to resolve fragments")
     summary = {
         "schema_version": 1, "boundary_policy": policy.name, "chunker_version": 1,
+        "keyword_index": {"version": 1, "tokenizer": "unicode61", "fragments": keyword_count},
         "embedding_model": encoder.name, "max_tokens": max_tokens,
         "tokenizer_sha256": encoder.tokenizer_sha256,
         "collection": collection_name,

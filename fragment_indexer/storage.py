@@ -5,6 +5,7 @@ from contextlib import closing
 from pathlib import Path
 
 from .extraction import Fragment
+from .keyword import write_keyword_index
 
 
 def allocate(path: Path, fragments: list[Fragment]) -> dict[str, int]:
@@ -58,6 +59,7 @@ def write_sections(path: Path, fragments: list[Fragment], ids: dict[str, int]) -
             ],
         )
         db.execute("CREATE INDEX sections_post_id ON sections(post_id)")
+        write_keyword_index(db, fragments, ids)
 
 
 def make_map(

@@ -1,6 +1,6 @@
 # Fragment indexer
 
-Build HTML fragments and Chroma embeddings from a minimal Hugo build, then verify
+Build HTML fragments, a SQLite FTS5 keyword index, and Chroma embeddings from a minimal Hugo build, then verify
 HTMX links in a second, production Hugo build. Both builds run locally in an
 isolated copy of the source site. This tool never invokes deployment scripts,
 contacts the deployment server, or changes the source site's generated data.
@@ -57,7 +57,7 @@ recreating those rules in Python. The template title/date/tags are outside the r
 output/
   state/identities.sqlite3       permanent allocation history; keep and back up
   releases/<build-id>/
-    sqlite/sections.db          active fragments, compatible with the existing API
+    sqlite/sections.db          active HTML fragments and their FTS5 keyword index
     chroma/                    complete local Chroma database
     data/fragments/sections.json
     chunks.json                exact embedding documents and source body text
@@ -79,7 +79,7 @@ section was removed finds no row; it cannot retrieve another section. The
 existing API's missing-fragment response is unchanged by this project.
 
 Each build creates a fresh snapshot, eliminating stale embedding chunks and
-removed posts. The Chroma worker process exits before publication. After SQLite,
+removed posts. The Chroma worker process exits before publication. After SQLite (including FTS),
 Chroma, JSON, and production-link validation pass, an atomic symlink replacement
 switches `current`. A failed build leaves the previous snapshot in place. A lock
 prevents concurrent builds from allocating or publishing inconsistently. Failed
@@ -118,13 +118,46 @@ in order; oversized blocks are divided into fitting substrings, preferably at wo
 boundaries. Every input substring remains represented, including the last part of
 long paragraphs and unbroken code. There is no overlap in this first version.
 
+## Keyword index
+
+Every new snapshot includes a `sections_fts` FTS5 table in `sqlite/sections.db`:
+
+| Column | Content |
+| ------ | ------- |
+| `rowid` | The permanent fragment ID, matching `sections.id` |
+| `page_title` | Plain-text post title |
+| `headings` | Full heading ancestry |
+| `body` | All extracted text blocks, joined with newlines |
+
+The table uses SQLite's `unicode61` tokenizer and one row per whole fragment,
+independent of embedding chunks. Heading-only fragments remain searchable through
+their context. HTML is not indexed directly; code, math, image alt text, and other
+supported content use the same clean extraction as embeddings. The canonical post
+path remains available in `sections.page_url`.
+
+`build.json` adds `keyword_index` with `version: 1`, `tokenizer: "unicode61"`, and
+`fragments` (the number of FTS rows). The overall snapshot schema stays at version 1
+because the existing HTML/Chroma contract is unchanged. Validation checks FTS
+integrity and exact equality of FTS row IDs with active HTML fragment IDs before
+publication. Fresh builds remove obsolete words and deleted fragments automatically.
+
+The API owns query interpretation, keyword inclusion/exclusion, and combined
+semantic/keyword ranking. It queries FTS read-only; it does not import this package.
+SQLite FTS5 already supports Boolean expressions, phrases, prefixes, and column
+filters without an index schema change. No additional Python search dependency is
+required. A SQLite build with FTS5 support is required for indexing and searching.
+
+Rebuild with the normal `fragment-indexer build` command to add keyword search to an
+existing output directory. Keep the permanent registry; completed older snapshots
+are not migrated in place. Restart the API after the new release is published.
+The indexer's existing CLI `query` command remains a semantic query helper.
+
 ## Compatibility and verification
 
 The existing API can still select `html_heading, html_fragment` from `sections`
 using `id`, and Chroma results retain `db_id`, `page_title`, `section_heading`, and
-`updated_at`. The local query command deduplicates by `db_id`. The old server
-consumer deduplicates by heading text; that separate server behavior remains a
-follow-up because equal headings can suppress distinct results.
+`updated_at`. The local query command deduplicates by `db_id`. Zalgorithm API also deduplicates by `db_id`, preserving distinct fragments that
+share heading text.
 
 The existing Hugo hook consumes the generated map unchanged, via
 `site.Data.fragments.sections`. Hugo 0.165 emits a deprecation warning for this

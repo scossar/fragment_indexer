@@ -60,8 +60,10 @@ class HugoIntegrationTests(unittest.TestCase):
             self.assertIn('FINAL_SENTINEL', intro_chunks[-1]['text'])
             with closing(sqlite3.connect(first / 'sqlite/sections.db')) as db:
                 self.assertTrue(all('hx-' not in row[0] for row in db.execute('SELECT html_fragment FROM sections')))
+                self.assertEqual(db.execute("SELECT rowid FROM sections_fts WHERE sections_fts MATCH ?", ('FINAL_SENTINEL',)).fetchall(), [(intro_id,)])
             summary = json.loads((first / 'build.json').read_text())
             self.assertGreaterEqual(summary['htmx_links_verified'], 2)
+            self.assertEqual(summary['keyword_index'], {'version': 1, 'tokenizer': 'unicode61', 'fragments': summary['fragments']})
 
             # Replace body and remove a heading: retained identities keep IDs, old
             # chunks and deleted headings are absent from the new snapshot.
@@ -71,6 +73,9 @@ class HugoIntegrationTests(unittest.TestCase):
             self.assertNotIn('/posts/intro/#later', short_mapping)
             self.assertEqual(len([c for c in short_chunks if c['db_id'] == intro_id]), 1)
             self.assertTrue(first.exists())
+            with closing(sqlite3.connect(second / 'sqlite/sections.db')) as db:
+                self.assertEqual(db.execute("SELECT rowid FROM sections_fts WHERE sections_fts MATCH ?", ('FINAL_SENTINEL',)).fetchall(), [])
+                self.assertNotIn(mapping['/posts/intro/#later']['db_id'], {r[0] for r in db.execute('SELECT rowid FROM sections_fts')})
 
             # Reintroduce the heading: its original permanent ID is restored.
             post('intro.md', 'intro', 'Intro\n\n## Later\n\nBack again.')
