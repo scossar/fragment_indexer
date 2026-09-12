@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fragment-indexer"
+version = "0.1.0"
+description = "Build Hugo HTML fragments and Chroma embeddings with permanent numeric identities"
+requires-python = ">=3.13"
+dependencies = ["chromadb==1.5.9", "lxml>=6.1.3,<7", "tokenizers>=0.20,<1"]
+
+[project.scripts]
+fragment-indexer = "fragment_indexer.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["fragment_indexer"]

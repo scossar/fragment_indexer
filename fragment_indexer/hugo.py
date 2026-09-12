@@ -1,0 +1,64 @@
+"""Local Hugo integration; never calls deployment scripts or edits the source site."""
+from pathlib import Path
+import shutil
+import subprocess
+
+from lxml import html
+
+ROOT_TEMPLATE = '''{{ if and (eq hugo.Environment "minimal") (eq .Section "posts") }}
+  {{ if not .Params.id }}{{ errorf "Post %s is missing frontmatter id" .File.Path }}{{ end }}
+  <div data-fragment-root="v1" data-build-environment="minimal"
+       data-post-id="{{ .Params.id }}" data-page-url="{{ .RelPermalink }}"
+       data-page-title="{{ .Title }}" data-source="{{ .File.Path }}"
+       data-updated-at="{{ .Lastmod.Unix }}">
+    {{ .Content }}
+  </div>
+{{ else }}
+  {{ .Content }}
+{{ end }}'''
+
+
+def copy_site(source: Path, target: Path, page_template: str):
+    if not (source / "content/posts").is_dir():
+        raise ValueError(f"Missing posts directory in {source}")
+    template = source / page_template
+    if not template.is_file():
+        raise ValueError(f"Missing page template: {template}")
+    template_text = template.read_text()
+    if template_text.count("{{ .Content }}") != 1:
+        raise ValueError("Page template must contain exactly one '{{ .Content }}' marker")
+    # The copy contains local inputs, not existing generated output or executables
+    # with deploy semantics. Hugo itself is the only external build command used.
+    shutil.copytree(source, target, ignore=shutil.ignore_patterns(
+        ".git", ".venv", "node_modules", "public", "resources", ".hugo_build.lock",
+        "deploy", "full_deploy", "local_deploy"))
+    override = target / "layouts/page.html"
+    override.parent.mkdir(parents=True, exist_ok=True)
+    override.write_text(template_text.replace("{{ .Content }}", ROOT_TEMPLATE))
+    data = target / "data/fragments/sections.json"
+    data.parent.mkdir(parents=True, exist_ok=True)
+    data.write_text("{}\n")  # do not let legacy fragment mappings affect extraction
+
+
+def render(site: Path, destination: Path, environment: str):
+    subprocess.run(["hugo", "build", "--source", str(site), "--destination", str(destination),
+                    "--environment", environment, "--cacheDir", str(site / ".build-cache")], check=True)
+
+
+def verify_links(directory: Path, mapping: dict) -> dict:
+    eligible = enhanced = 0
+    for path in directory.rglob("*.html"):
+        tree = html.parse(str(path))
+        for link in tree.xpath('//a[@href]'):
+            href = link.get("href")
+            expected = mapping.get(href)
+            if expected and not link.get("rel"):
+                eligible += 1
+                # Only hook-generated links must be enhanced. Template title/heading
+                # anchors do not pass through the Markdown hook.
+            get = link.get("hx-get")
+            if get and "/api/fragment/" in get:
+                if not expected or not get.endswith(f'/api/fragment/{expected["db_id"]}'):
+                    raise ValueError(f"{path}: HTMX fragment ID disagrees with URL map: {href}")
+                enhanced += 1
+    return {"mapped_links": eligible, "htmx_links_verified": enhanced}
