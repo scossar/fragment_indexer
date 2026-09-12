@@ -152,6 +152,150 @@ existing output directory. Keep the permanent registry; completed older snapshot
 are not migrated in place. Restart the API after the new release is published.
 The indexer's existing CLI `query` command remains a semantic query helper.
 
+## Query examples
+
+### Semantic queries from the CLI
+
+Run these from the `fragment_indexer` directory after building a snapshot:
+
+```bash
+# Ask a question in natural language
+uv run fragment-indexer query 'Why does gradient descent move downhill?'
+
+# Search by concept, with a smaller result limit
+uv run fragment-indexer query 'How do logarithms compress large values?' --limit 3
+
+# Query a snapshot in a different output directory
+uv run fragment-indexer query 'What does a negative derivative tell us?' \
+  --output /path/to/output --limit 5
+```
+
+The CLI prints JSON containing `db_id`, `url` (the fragment URL), `distance`, and
+`html`. Its `query` command supports semantic search only. The API examples below
+provide keyword search, filters, and combined ranking over the same fragments.
+
+### Start the API for the remaining examples
+
+In a separate terminal, start Zalgorithm API against a completed snapshot built
+with the keyword index:
+
+```bash
+cd ~/projects/python/zalgorithm_api
+INDEX_SNAPSHOT=../fragment_indexer/output/current \
+  uv run python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+The following requests can run from any directory. They return HTML fragments.
+Restart the API after rebuilding the snapshot to load the new release.
+
+### Semantic and keyword search
+
+```bash
+# Semantic search: mode=semantic is the default
+curl --data-urlencode 'query=Why does gradient descent move downhill?' \
+  http://127.0.0.1:8000/api/query
+
+# Keyword search: require both words anywhere in the indexed fragment fields
+curl -d 'mode=keyword' --data-urlencode 'query=gradient descent' \
+  http://127.0.0.1:8000/api/query
+
+# Require an exact sequence of words using a quoted phrase
+curl -d 'mode=keyword' --data-urlencode 'query="gradient descent"' \
+  http://127.0.0.1:8000/api/query
+```
+
+Keyword matching searches the page title, heading ancestry, and complete fragment
+body. Simple syntax joins words with `AND`; quotes preserve a phrase. Matching
+uses SQLite's word tokenization, so a phrase is not a byte-for-byte substring test.
+
+### Include or exclude keyword matches
+
+```bash
+# Semantic results must contain a keyword match for "derivative"
+curl --data-urlencode 'query=How can we tell whether a function is decreasing?' \
+  --data-urlencode 'include=derivative' \
+  http://127.0.0.1:8000/api/query
+
+# Semantic results must not match "gradient"
+curl --data-urlencode 'query=How does a function change?' \
+  --data-urlencode 'exclude=gradient' \
+  http://127.0.0.1:8000/api/query
+
+# Require one expression and exclude another
+curl --data-urlencode 'query=How does optimization work?' \
+  --data-urlencode 'include="gradient descent"' \
+  --data-urlencode 'exclude=stochastic' \
+  http://127.0.0.1:8000/api/query
+```
+
+Filters apply before semantic retrieval and the final result limit. A match
+anywhere in the indexed fragment fields qualifies the whole fragment, even when
+it has several embedding chunks. Both filters also work with `mode=keyword` and
+`mode=hybrid`. No qualifying fragments produces empty HTML.
+
+### Merge semantic and keyword rankings
+
+```bash
+# Use the same query for both searches, then combine their rankings with RRF
+curl -d 'mode=hybrid' --data-urlencode 'query=gradient descent' \
+  http://127.0.0.1:8000/api/query
+
+# Give the semantic search a question and the keyword search a separate expression
+curl -d 'mode=hybrid' \
+  --data-urlencode 'query=Why does taking small steps help minimize a function?' \
+  --data-urlencode 'keyword_query="gradient descent"' \
+  http://127.0.0.1:8000/api/query
+
+# Apply a mandatory keyword filter to both ranked lists
+curl -d 'mode=hybrid' --data-urlencode 'query=gradient descent' \
+  --data-urlencode 'include=derivative' \
+  --data-urlencode 'exclude=stochastic' \
+  http://127.0.0.1:8000/api/query
+```
+
+`keyword_query` is supported only in hybrid mode. It contributes a ranked result
+list; it does not require every returned fragment to match. Use `include` when a
+keyword match is mandatory. Fragments present in both rankings receive a combined
+RRF contribution and appear only once in the response.
+
+### Advanced SQLite FTS5 expressions
+
+Set `keyword_syntax=fts5` to interpret Boolean operators and other FTS5 syntax:
+
+```bash
+curl -d 'mode=keyword' -d 'keyword_syntax=fts5' \
+  --data-urlencode 'query=(gradient OR derivative) NOT stochastic' \
+  http://127.0.0.1:8000/api/query
+
+# Keep a natural-language semantic query and use Boolean expressions in filters
+curl -d 'keyword_syntax=fts5' \
+  --data-urlencode 'query=How can we minimize a function?' \
+  --data-urlencode 'include=gradient AND descent' \
+  --data-urlencode 'exclude=stochastic OR reinforcement' \
+  http://127.0.0.1:8000/api/query
+```
+
+Try these expressions in `query` for keyword mode, `keyword_query` for hybrid
+mode, or either filter, with `keyword_syntax=fts5`:
+
+| Expression | Meaning |
+| ---------- | ------- |
+| `gradient AND descent` | Require both words |
+| `gradient OR derivative` | Match either word |
+| `gradient NOT stochastic` | Require gradient and exclude stochastic |
+| `"gradient descent" OR logarithm` | Match a phrase or a word |
+| `grad*` | Match words beginning with `grad` |
+| `headings:derivative` | Match heading ancestry only |
+| `page_title:logarithms` | Match the post title only |
+| `body:"gradient descent"` | Match a phrase in the body only |
+| `NEAR(gradient descent, 5)` | Match the words near each other |
+
+`keyword_syntax` applies to all keyword expressions in a request; it does not
+change how the semantic query is encoded. In simple mode, `AND`, `OR`, and `NOT`
+are ordinary search words. FTS5 `NOT` is binary: use `gradient NOT stochastic`, or
+the API's `exclude=stochastic` filter, rather than standalone `NOT stochastic`.
+Malformed expressions return 422. Results depend on the content in your snapshot.
+
 ## Compatibility and verification
 
 The existing API can still select `html_heading, html_fragment` from `sections`
