@@ -3,3 +3,5 @@ __pycache__/
 *.egg-info/
 output/
 :memory:.ses
+output-production/
+output-local-content/
