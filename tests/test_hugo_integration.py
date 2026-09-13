@@ -1,5 +1,6 @@
 """Real Hugo, ONNX embeddings, persistent Chroma, and repeated staged builds."""
 import json
+import os
 from pathlib import Path
 import shutil
 import sqlite3
@@ -12,6 +13,72 @@ import unittest
 
 @unittest.skipUnless(shutil.which("hugo"), "Hugo is required for integration tests")
 class HugoIntegrationTests(unittest.TestCase):
+    def test_selected_content_any_section_and_empty_rebuild(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            site, output = root / "site", root / "output"
+            content = site / "content-development"
+            content.mkdir(parents=True)
+            (site / "layouts").mkdir()
+            (site / "hugo.toml").write_text('baseURL = "https://example.com/"\n')
+            (site / "layouts/page.html").write_text('<html><body>{{ .Content }}</body></html>')
+            (site / "layouts/home.html").write_text('<html><body>Home</body></html>')
+            sources = ("about.md", "posts/mountain-biking.md", "ride-logs/2026/sept-12.md")
+            for ordinal, name in enumerate(sources):
+                path = content / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(f'+++\ntitle = "Page {ordinal}"\nid = "page-{ordinal}"\n+++\nBody {ordinal}.')
+            for name in ("_index.md", "ride-logs/_index.md", "bundle/index.md"):
+                path = content / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                # Excluded index files do not need fragment IDs.
+                path.write_text('+++\ntitle = "Ignored"\n+++\nIgnored content.')
+            command = [sys.executable, "-m", "fragment_indexer", "build", "--site", str(site),
+                       "--output", str(output), "--page-template", "layouts/page.html"]
+            env = dict(os.environ, HUGO_CONTENTDIR="content-development")
+
+            def build():
+                result = subprocess.run(command, env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                return (output / "current").resolve()
+
+            first = build()
+            with closing(sqlite3.connect(first / "sqlite/sections.db")) as db:
+                self.assertEqual({r[0] for r in db.execute("SELECT source FROM sections")}, set(sources))
+            # There is deliberately no content/ or content/posts/ directory.
+            self.assertFalse((site / "content").exists())
+            # Also exercise contentDir from environment-specific Hugo config.
+            env.pop("HUGO_CONTENTDIR")
+            config = site / "config/minimal/hugo.toml"
+            config.parent.mkdir(parents=True)
+            config.write_text('contentDir = "content-development"\n')
+            production_config = site / "config/production/hugo.toml"
+            production_config.parent.mkdir(parents=True)
+            production_config.write_text(config.read_text())
+            for path in content.rglob("*.md"):
+                path.unlink()
+            empty = build()
+            self.assertNotEqual(first, empty)
+            with closing(sqlite3.connect(empty / "sqlite/sections.db")) as db:
+                self.assertEqual(db.execute("SELECT count(*) FROM sections").fetchone()[0], 0)
+                self.assertEqual(db.execute("SELECT count(*) FROM sections_fts").fetchone()[0], 0)
+            with closing(sqlite3.connect(output / "state/identities.sqlite3")) as db:
+                self.assertEqual(db.execute("SELECT count(*) FROM identities").fetchone()[0], 3)
+            self.assertEqual(json.loads((empty / "chunks.json").read_text()), [])
+            self.assertEqual(json.loads((empty / "data/fragments/sections.json").read_text()), {})
+            summary = json.loads((empty / "build.json").read_text())
+            for key in ("pages", "fragments", "chunks", "url_mappings", "max_observed_tokens"):
+                self.assertEqual(summary[key], 0)
+            result = subprocess.run([sys.executable, "-m", "fragment_indexer", "query", "anything",
+                                     "--output", str(output)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout), [])
+            shutil.rmtree(content)
+            result = subprocess.run(command, env=env, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("Missing content directory", result.stderr)
+            self.assertEqual((output / "current").resolve(), empty)
+
     def test_build_rebuild_delete_restore_and_failed_release(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -36,7 +103,9 @@ class HugoIntegrationTests(unittest.TestCase):
             long_text = " ".join(f"number{i}" for i in range(900)) + " FINAL_SENTINEL"
             intro = post("intro.md", "intro", long_text + '\n\n## Later\n\nRemaining text\n\n[First](/posts/first.md#first)\n\n[Whole first](/posts/first.md)')
             post("first.md", "first", '## First\n\nAlpha text.\n\n### Child\n\nBeta text.\n\n[Headingless](/posts/bundle/)')
-            post("bundle/index.md", "bundle", 'No headings here.', 'slug = "custom-name"')
+            post("headingless.md", "headingless", 'No headings here.', 'slug = "custom-name"')
+            post("bundle/index.md", "", 'Ignored bundle page.')
+            post("_index.md", "", 'Ignored section page.')
             post("draft.md", "draft", 'Not published', 'draft = true')
             command = [sys.executable, "-m", "fragment_indexer", "build", "--site", str(site),
                        "--output", str(output), "--page-template", "layouts/page.html"]

@@ -27,8 +27,6 @@ def index_html(
     policy = NextHeadingPolicy()
     pages = discover_pages(html_dir)
     fragments = [f for page in pages for f in extract(page, policy)]
-    if not fragments:
-        raise ValueError("No fragments found; refusing to replace the current index")
     encoder = MiniLM()
     prepared = [(f, chunk_fragment(f, encoder, max_tokens)) for f in fragments]
     # Allocate only after extraction and tokenization have succeeded. Failed later

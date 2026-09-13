@@ -1,12 +1,17 @@
 """Local Hugo integration; never calls deployment scripts or edits the source site."""
 
+import json
 import shutil
 import subprocess
 from pathlib import Path
 
 from lxml import html
 
-ROOT_TEMPLATE = """{{ if and (eq hugo.Environment "minimal") (eq .Section "posts") }}
+ROOT_TEMPLATE = """{{ $indexable := false }}
+{{ with .File }}
+  {{ $indexable = and (in (slice "md" "markdown" "mdown") .Ext) (not (in (slice "index" "_index") .TranslationBaseName)) }}
+{{ end }}
+{{ if and (eq hugo.Environment "minimal") $indexable }}
   {{ if not .Params.id }}{{ errorf "Post %s is missing frontmatter id" .File.Path }}{{ end }}
   <div data-fragment-root="v1" data-build-environment="minimal"
        data-post-id="{{ .Params.id }}" data-page-url="{{ .RelPermalink }}"
@@ -20,8 +25,18 @@ ROOT_TEMPLATE = """{{ if and (eq hugo.Environment "minimal") (eq .Section "posts
 
 
 def copy_site(source: Path, target: Path, page_template: str):
-    if not (source / "content/posts").is_dir():
-        raise ValueError(f"Missing posts directory in {source}")
+    config = json.loads(
+        subprocess.check_output(
+            [
+                "hugo", "config", "--source", str(source),
+                "--environment", "minimal", "--format", "json",
+            ],
+            text=True,
+        )
+    )
+    content = source / config["contentdir"]
+    if not content.is_dir():
+        raise ValueError(f"Missing content directory: {content}")
     template = source / page_template
     if not template.is_file():
         raise ValueError(f"Missing page template: {template}")

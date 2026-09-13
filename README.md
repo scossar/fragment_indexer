@@ -47,8 +47,9 @@ Hugo site and its theme are not modified by the build command.
 
 The generated content-root attributes provide the frontmatter post ID, Hugo's
 canonical URL, title, source path, and last-modified timestamp. Only Hugo-published
-pages in the `posts` section are marked. Drafts, future posts, slug overrides, and
-leaf bundles therefore follow Hugo's own publication and routing rules, without
+Markdown pages anywhere in the selected content directory are marked, except
+`index.md` and `_index.md` (including translated index files). Drafts, future posts,
+and slug overrides follow Hugo's own publication and routing rules, without
 recreating those rules in Python. The template title/date/tags are outside the root.
 
 ## Files and identities
@@ -103,7 +104,11 @@ headings inside a wrapper, list, or blockquote fail with an explicit message; a
 future policy must define how to split those structures without breaking their
 HTML. Empty heading sections and media-only sections remain addressable; where
 there is no body text, title/heading context supplies an embedding. Completely
-empty posts yield no fragment. An entirely empty discovered site is rejected.
+empty posts yield no fragment. An empty content directory produces a successful
+snapshot with an empty Chroma collection, empty SQLite sections and FTS tables,
+and an empty URL mapping. Existing permanent ID history is retained.
+The content directory must exist; it is resolved from Hugo's effective `minimal`
+configuration, including the `HUGO_CONTENTDIR` override supplied by deployment.
 
 Text extraction includes paragraphs, lists, blockquotes, tables, definition lists,
 plain/highlighted code, captions, image alt text, and footnotes. KaTeX equations use

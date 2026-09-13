@@ -111,9 +111,12 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(result[0].url, "/custom/slug/")
             self.assertEqual(result[0].source, "posts/bundle/index.md")
 
-    def test_empty_or_unmarked_input_rejected(self):
-        with tempfile.TemporaryDirectory() as directory, self.assertRaises(ValueError):
-            discover_pages(Path(directory))
+    def test_empty_or_unmarked_input_is_empty(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertEqual(discover_pages(root), [])
+            (root / "index.html").write_text("<p>Navigation only</p>")
+            self.assertEqual(discover_pages(root), [])
 
     def test_duplicate_post_ids_rejected(self):
         with tempfile.TemporaryDirectory() as directory:

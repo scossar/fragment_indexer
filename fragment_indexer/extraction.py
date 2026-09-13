@@ -194,10 +194,6 @@ def discover_pages(directory: Path) -> list[Page]:
                 root,
             )
         )
-    if not pages:
-        raise ValueError(
-            "No marked published posts found; refusing to build an empty index"
-        )
     return sorted(pages, key=lambda p: p.post_id)
 
 
