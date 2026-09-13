@@ -28,8 +28,14 @@ def copy_site(source: Path, target: Path, page_template: str):
     config = json.loads(
         subprocess.check_output(
             [
-                "hugo", "config", "--source", str(source),
-                "--environment", "minimal", "--format", "json",
+                "hugo",
+                "config",
+                "--source",
+                str(source),
+                "--environment",
+                "minimal",
+                "--format",
+                "json",
             ],
             text=True,
         )
