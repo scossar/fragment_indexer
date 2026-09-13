@@ -117,8 +117,10 @@ def build(args):
 def query(args):
     import sqlite3
     from contextlib import closing
+
     import chromadb
     from chromadb.config import Settings
+
     from .embedding import MiniLM
 
     # Resolve once so a concurrent build cannot mix two snapshots.
